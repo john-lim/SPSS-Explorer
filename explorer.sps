@@ -56,6 +56,17 @@ def factorAnalysis(selectedVar):
     """.format(names=' '.join(selectedVar)))
     time.sleep(1)
 
+# Standard settings for reliability analysis
+def reliabilityAnalysis(sublistVar):
+    spss.Submit("""
+    RELIABILITY
+        /VARIABLES={names}
+        /SCALE('ALL VARIABLES') ALL
+        /MODEL=ALPHA
+        /SUMMARY=TOTAL.
+    """.format(names=' '.join(sublistVar)))
+    time.sleep(1)
+
 # Gets the kmo to check if there is adequate correlation between variables.
 def adequacyCheck():
     # Output docs are opened and closed to ensure that a f
@@ -86,6 +97,8 @@ def discriminantCheck(noChangeDisc):
     while True:
         SpssClient.StartClient()
         SpssOutputDoc=SpssClient.GetDesignatedOutputDoc()
+        SpssOutputDoc.SelectAll()
+        SpssOutputDoc.Delete()
         OutputItemList=SpssOutputDoc.GetOutputItems()
         for index in range(OutputItemList.Size()):
             OutputItem = OutputItemList.GetItemAt(index)
@@ -164,16 +177,61 @@ def convergentCheck(noChangeCon):
             SpssClient.StopClient()
             return noChangeCon
             break
-       
+
+def reliabilityCheck(noChangeRel):
+    noChangeRel=True
+    grouping=[]
+    for var in selectedVar:
+        prefix = var.split('_')[0]
+        if not prefix in grouping:
+            grouping.append(prefix)
+    for group in grouping:
+        sublist=[]
+        for var in selectedVar:
+            prefix = var.split('_')[0]
+            if prefix == group:
+                sublist.append(var)
+        SpssClient.StartClient()
+        SpssOutputDoc=SpssClient.GetDesignatedOutputDoc()
+        SpssOutputDoc.SelectAll()
+        SpssOutputDoc.Delete()
+        reliabilityAnalysis(sublist)
+        OutputItemList=SpssOutputDoc.GetOutputItems()
+        for index in range(OutputItemList.Size()):
+            OutputItem = OutputItemList.GetItemAt(index)
+            if OutputItem.GetDescription() == "Reliability Statistics":
+                ReliabilityStatsTable = OutputItem.GetSpecificType()
+                ReliabilityStatsDataCells = ReliabilityStatsTable.DataCellArray()
+                cronbachs = float(ReliabilityStatsDataCells.GetValueAt(0,0))
+                for index in range(OutputItemList.Size()):
+                    OutputItem = OutputItemList.GetItemAt(index)
+                    if OutputItem.GetDescription() == "Item-Total Statistics":
+                        ItemStatsTable = OutputItem.GetSpecificType()
+                        ItemStatsDataCells = ItemStatsTable.DataCellArray()
+                        ItemStatsLabels = ItemStatsTable.RowLabelArray()
+                        for i in range(ItemStatsDataCells.GetNumRows()):
+                            itemStat =  float(ItemStatsDataCells.GetValueAt(i,3))
+                            if itemStat > cronbachs:
+                                removeVar = ItemStatsLabels.GetValueAt(i,1)  
+                                logs.append("Removed {} because of the cronbachs alpha test.".format(removeVar))
+                                noChangeRel=False
+                                print(removeVar)
+                                selectedVar.remove(removeVar)
+                                                  
+        SpssClient.StopClient()
         
     
 selectVar()
-adequacyCheck()
 noChangeDisc=False
 noChangeCon=False
-while (noChangeDisc is False) and (noChangeCon is False):
-    noChangeDisc=discriminantCheck(noChangeDisc)
-    noChangeCon=convergentCheck(noChangeCon)
+noChangeRel=False
+while (noChangeDisc is False) and (noChangeCon is False) and noChangeRel is False:
+    adequacyCheck()
+    while (noChangeDisc is False) and (noChangeCon is False):
+        noChangeDisc=discriminantCheck(noChangeDisc)
+        noChangeCon=convergentCheck(noChangeCon)
+    noChangeRel=reliabilityCheck(noChangeRel)
+factorAnalysis(selectedVar)
 for log in logs:
     print(log)
 END PROGRAM.
